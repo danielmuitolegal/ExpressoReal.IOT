@@ -1,5 +1,5 @@
-#include <WiFi.h>              // Biblioteca para conectar o ESP32 ao Wi-Fi
-#include <PubSubClient.h>      // Biblioteca para comunicação MQTT
+#include <WiFi.h>          // Biblioteca para conectar o ESP32 ao Wi-Fi
+#include <PubSubClient.h>  // Biblioteca para comunicação MQTT
 
 // Cria um objeto que representa a conexão Wi-Fi
 WiFiClient wifi_client;
@@ -21,14 +21,14 @@ const String brokerUser = "";
 const String brokerPass = "";
 
 void setup() {
-  Serial.begin(115200);             // Inicia a comunicação serial (para ver mensagens no monitor serial)
+  Serial.begin(115200);  // Inicia a comunicação serial (para ver mensagens no monitor serial)
 
-  WiFi.begin(SSID, PASS);           // Tenta conectar o ESP32 ao Wi-Fi com o SSID e senha informados
+  WiFi.begin(SSID, PASS);  // Tenta conectar o ESP32 ao Wi-Fi com o SSID e senha informados
   Serial.println("Conectando no WiFi...");
-  
+
   // Espera até que a conexão Wi-Fi seja estabelecida
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");              // Mostra pontos enquanto tenta conectar
+    Serial.print(".");  // Mostra pontos enquanto tenta conectar
     delay(200);
   }
   Serial.println("\nConectado com sucesso ao WiFi!");
@@ -44,7 +44,7 @@ void setup() {
 
   // Tenta conectar ao broker MQTT
   while (mqtt.connect(clientID.c_str()) == 0) {
-    Serial.print(".");               // Mostra pontos enquanto tenta conectar
+    Serial.print(".");  // Mostra pontos enquanto tenta conectar
     delay(2000);
   }
   mqtt.subscribe(topic.c_str());
@@ -56,24 +56,21 @@ void loop() {
   // Aqui vai o código que será executado continuamente
   // (por exemplo, publicar ou receber mensagens MQTT)
   String mensagem = "";
-  if(Serial.available() > 0){
+  if (Serial.available() > 0) {
     mensagem = Serial.readStringUntil('\n');
     mensagem = "sara: " + mensagem;
-    mqtt.publish("bob",mensagem.c_str());
-    mqtt.publish("macaco",mensagem.c_str());
-    mqtt.publish("felpz",mensagem.c_str());
-}
-mqtt.loop();
+    mqtt.publish("bob", mensagem.c_str());
+    mqtt.publish("macaco", mensagem.c_str());
+    mqtt.publish("felpz", mensagem.c_str());
+  }
+  mqtt.loop();
 }
 
-void callback(char* topic, byte* payload, unsigned long length){
+void callback(char* topic, byte* payload, unsigned long length) {
   String MensagemRecebida = "";
-  for (int i = 0; i < length; i++){
+  for (int i = 0; i < length; i++) {
     //Pega cada letra de payload e junta na mensagem
-    MensagemRecebida += (char) payload[i];
-
+    MensagemRecebida += (char)payload[i];
   }
   Serial.println(MensagemRecebida);
-
 }
-
