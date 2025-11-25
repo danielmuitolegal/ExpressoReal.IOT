@@ -1,78 +1,222 @@
-#include <WiFi.h>          // Biblioteca para conectar o ESP32 ao Wi-Fi
-#include <PubSubClient.h>  // Biblioteca para comunicação MQTT
 
-// Cria um objeto que representa a conexão Wi-Fi
-WiFiClient wifi_client;
 
-// Cria um objeto MQTT usando a conexão Wi-Fi
-PubSubClient mqtt(wifi_client);
+//CONECTA O WIFI
 
-// Nome e senha da rede Wi-Fi que o ESP32 vai se conectar
-const String SSID = "FIESC_IOT_EDU";
-const String PASS = "8120gv08";
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h> 
+#include "env.h"
+#include <ESP32Servo.h>
 
-// Endereço e porta do broker MQTT público
-const String brokerURL = "test.mosquitto.org";
-const int brokerPort = 1883;
-const String topic = "bob";
 
-// Usuário e senha do broker (aqui estão vazios porque esse broker é público)
-const String brokerUser = "";
-const String brokerPass = "";
+// === Objetos de comunicação === //
+WiFiClientSecure wifiClient;
+PubSubClient mqtt(wifiClient);
 
-void setup() {
-  Serial.begin(115200);  // Inicia a comunicação serial (para ver mensagens no monitor serial)
 
-  WiFi.begin(SSID, PASS);  // Tenta conectar o ESP32 ao Wi-Fi com o SSID e senha informados
-  Serial.println("Conectando no WiFi...");
+// === Pinos === //
+const int LED_PIN = 14;
+const int SERVO1_PIN = 26;
+const int SERVO2_PIN = 27;
+const byte TRIGGER_PIN = 5;
+const byte ECHO_PIN = 18;
 
-  // Espera até que a conexão Wi-Fi seja estabelecida
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");  // Mostra pontos enquanto tenta conectar
-    delay(200);
+
+// === Atuadores === //
+Servo servo1;
+Servo servo2;
+
+
+
+
+//Essa parte conecta o ESP32 ao servidor MQTT e se inscreve nos tópicos. Se a conexão cair, essa função tenta reconectar automaticamente.
+
+// ========================================= //
+// ===========  CONEXÃO MQTT =============== //
+// ========================================= //
+void reconnectMQTT() {
+  while (!mqtt.connected()) {
+    Serial.print("Tentando conectar ao broker... ");
+    String clientID = "ESP32_S3_Cliente_";
+    clientID += String(random(0xffff), HEX);
+
+
+    if (mqtt.connect(clientID.c_str())) {
+      Serial.println("Conectado!");
+      mqtt.subscribe(TOPIC_LED);
+      mqtt.subscribe(TOPIC_SERVO_1);
+      mqtt.subscribe(TOPIC_SERVO_2);
+      mqtt.subscribe(TOPIC_ULTRASSONICO);
+    } else {
+      Serial.print("Falhou, rc=");
+      Serial.print(mqtt.state());
+      Serial.println(" Tentando novamente...");
+      delay(1000);
+    }
   }
-  Serial.println("\nConectado com sucesso ao WiFi!");
-
-  // Configura o servidor MQTT (endereço e porta)
-  mqtt.setServer(brokerURL.c_str(), brokerPort);
-
-  // Cria um ID único para o cliente MQTT (evita conflito com outros dispositivos)
-  String clientID = "S2";
-  clientID += String(random(0xffff), HEX);
-
-  Serial.println("Conectando ao Broker MQTT...");
-
-  // Tenta conectar ao broker MQTT
-  while (mqtt.connect(clientID.c_str()) == 0) {
-    Serial.print(".");  // Mostra pontos enquanto tenta conectar
-    delay(2000);
-  }
-  mqtt.subscribe(topic.c_str());
-  // mqtt.subscribe("felpz");
-  mqtt.setCallback(callback);
-  Serial.println("\nConectado ao broker MQTT!");
 }
 
-void loop() {
-  // Aqui vai o código que será executado continuamente
-  // (por exemplo, publicar ou receber mensagens MQTT)
-  String mensagem = "";
-  if (Serial.available() > 0) {
-    mensagem = Serial.readStringUntil('\n');
-    mensagem = "Calebe: " + mensagem;
-    mqtt.publish("felpz", mensagem.c_str());
-    mqtt.publish("macaco", mensagem.c_str());
-    mqtt.publish("gatinhos", mensagem.c_str());
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//Essa função é chamada quando chega uma mensagem enviada pelo MQTT.
+ //Se a mensagem for do LED, liga ou desliga.
+ //Se for do servo, ele gira o motor para o ângulo enviado.”
+
+
+// ========================================= //
+// =============== CALLBACK ================= //
+// ========================================= //
+void callback(char* topic, byte* payload, unsigned int length) {
+  String msg = "";
+  for (int i = 0; i < length; i++) {
+    msg += (char)payload[i];
+  }
+
+
+  String top = String(topic);
+
+
+  // Controle do LED
+  if (top == TOPIC_LED) {
+    digitalWrite(LED_PIN, msg == "Acender" ? HIGH : LOW); //aqui
+  }
+
+
+  // Servo 1
+  if (top == TOPIC_SERVO_1) {
+    int angulo = msg.toInt();
+    servo1.write(angulo);
+    mqtt.publish(TOPIC_SERVO_1, String(angulo).c_str());
+  }
+
+
+  // Servo 2
+  if (top == TOPIC_SERVO_2) {
+    int angulo = msg.toInt();
+    servo2.write(angulo);
+    mqtt.publish(TOPIC_SERVO_2, String(angulo).c_str());
+  }}
+
+
+//Essa parte envia um pulso pelo TRIGGER, mede o tempo que o eco leva para voltar e transforma isso em centímetros.
+//Se a distância for menor que 10 cm, envia uma mensagem dizendo que há presença.”
+
+
+// ========================================= //
+// =========== LEITURA ULTRASSÔNICO ======== //
+// ========================================= //
+long lerDistancia() {
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+
+
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+
+
+  digitalWrite(TRIGGER_PIN, LOW);
+
+
+  long duracao = pulseIn(ECHO_PIN, HIGH);
+  long distancia = (duracao * 0.0343) / 2;  
+  return distancia;
+}
+
+
+
+
+//O setup prepara tudo antes de o programa começar: configura pinos, inicia Wi-Fi, conecta ao MQTT e posiciona os servos.
+// ========================================= //
+// ================ SETUP ================== //
+// ========================================= //
+void setup() {
+  Serial.begin(115200);
+
+
+
+
+  // Pinos
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+
+  // Servos
+  servo1.attach(SERVO1_PIN);
+  servo2.attach(SERVO2_PIN);
+  servo1.write(0);
+  servo2.write(0);
+
+
+  // Wi-Fi
+  wifiClient.setInsecure();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+
+  Serial.print("Conectando ao WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(200);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado!");
+
+
+  // MQTT
+  mqtt.setServer(BROKER_URL, BROKER_PORT);
+  mqtt.setCallback(callback);
+
+
+  reconnectMQTT();
+}
+
+
+
+
+//Aqui é onde o ESP32 roda o tempo todo:
+//mantém o MQTT funcionando, lê o sensor e envia a mensagem quando detecta presença.”
+// ========================================= //
+// ================= LOOP ================== //
+// ========================================= //
+void loop() {
+  if (!mqtt.connected()) {
+    reconnectMQTT();
   }
   mqtt.loop();
+
+
+  long distancia = lerDistancia();
+  if (distancia < 10 && distancia > 0) {
+    mqtt.publish(TOPIC_ULTRASSONICO, "90");
+    Serial.println("Presença detectada!");
+  }
+
+
+  delay(200);
 }
 
-void callback(char* topic, byte* payload, unsigned long length) {
-  String MensagemRecebida = "";
-  for (int i = 0; i < length; i++) {
-    //Pega cada letra de payload e junta na mensagem
-    MensagemRecebida += (char)payload[i];
-  }
-  Serial.println(MensagemRecebida);
-}
+
+
+
+
+
+
+
+
+
+
+
