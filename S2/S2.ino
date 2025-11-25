@@ -1,79 +1,116 @@
-#include <WiFi.h>              // Biblioteca para conectar o ESP32 ao Wi-Fi
-#include <PubSubClient.h>      // Biblioteca para comunicação MQTT
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include "env.h"
 
-// Cria um objeto que representa a conexão Wi-Fi
-WiFiClient wifi_client;
-
-// Cria um objeto MQTT usando a conexão Wi-Fi
+WiFiClientSecure wifi_client;
 PubSubClient mqtt(wifi_client);
 
-// Nome e senha da rede Wi-Fi que o ESP32 vai se conectar
-const String SSID = "FIESC_IOT_EDU";
-const String PASS = "8120gv08";
-
-// Endereço e porta do broker MQTT público
-const String brokerURL = "test.mosquitto.org";
-const int brokerPort = 1883;
-const String topic = "gatinhos";
-
-// Usuário e senha do broker (aqui estão vazios porque esse broker é público)
-const String brokerUser = "";
-const String brokerPass = "";
+const int trig_1 = 12;
+const int echo_1 = 13;
+const int trig_2 = 14;
+const int echo_2 = 15;
+const byte LED_PIN = 18;
 
 void setup() {
-  Serial.begin(115200);             // Inicia a comunicação serial (para ver mensagens no monitor serial)
+  Serial.begin(115200);
 
-  WiFi.begin(SSID, PASS);           // Tenta conectar o ESP32 ao Wi-Fi com o SSID e senha informados
-  Serial.println("Conectando no WiFi...");
-  
-  // Espera até que a conexão Wi-Fi seja estabelecida
+  wifi_client.setInsecure();
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  pinMode(trig_1, OUTPUT);
+  pinMode(echo_1, INPUT);
+
+  pinMode(trig_2, OUTPUT);
+  pinMode(echo_2, INPUT);
+
+  Serial.println("Conectando ao WiFi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");              // Mostra pontos enquanto tenta conectar
-    delay(200);
+    Serial.print(".");
+    delay(300);
   }
-  Serial.println("\nConectado com sucesso ao WiFi!");
 
-  // Configura o servidor MQTT (endereço e porta)
-  mqtt.setServer(brokerURL.c_str(), brokerPort);
+  Serial.println("\nWiFi conectado!");
 
-  // Cria um ID único para o cliente MQTT (evita conflito com outros dispositivos)
-  String clientID = "S2";
-  clientID += String(random(0xffff), HEX);
-
-  Serial.println("Conectando ao Broker MQTT...");
-
-  // Tenta conectar ao broker MQTT
-  while (mqtt.connect(clientID.c_str()) == 0) {
-    Serial.print(".");               // Mostra pontos enquanto tenta conectar
-    delay(2000);
-  }
-  mqtt.subscribe(topic.c_str());
+  mqtt.setServer(BROKER_URL, BROKER_PORT);
   mqtt.setCallback(callback);
-  Serial.println("\nConectado ao broker MQTT!");
+
+  conectarMQTT();
 }
 
 void loop() {
-  // Aqui vai o código que será executado continuamente
-  // (por exemplo, publicar ou receber mensagens MQTT)
-  String mensagem = "";
-  if(Serial.available() > 0){
-    mensagem = Serial.readStringUntil('\n');
-    mensagem = "sara: " + mensagem;
-    mqtt.publish("bob",mensagem.c_str());
-    mqtt.publish("macaco",mensagem.c_str());
-    mqtt.publish("felpz",mensagem.c_str());
-}
-mqtt.loop();
-}
-
-void callback(char* topic, byte* payload, unsigned long length){
-  String MensagemRecebida = "";
-  for (int i = 0; i < length; i++){
-    //Pega cada letra de payload e junta na mensagem
-    MensagemRecebida += (char) payload[i];
-
+  if (!mqtt.connected()) {
+    conectarMQTT();
   }
-  Serial.println(MensagemRecebida);
 
+  mqtt.loop();
+
+  long dist_1 = lerDistancia(trig_1, echo_1);
+  if (dist_1 > 0 && dist_1 < 10) {
+    mqtt.publish(TOPICO_ULTRASSONICO1, "Presente");
+  }
+
+  long dist_2 = lerDistancia(trig_2, echo_2);
+  if (dist_2 > 0 && dist_2 < 10) {
+    mqtt.publish(TOPICO_ULTRASSONICO2, "Presente");
+  }
+
+  delay(200);
 }
 
+long lerDistancia(byte trig_pin, byte echo_pin) {
+  digitalWrite(trig_pin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig_pin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig_pin, LOW);
+
+  long duracao = pulseIn(echo_pin, HIGH, 30000);
+
+  if (duracao == 0) return -1;
+
+  long distancia = duracao * 0.034 / 2;
+  return distancia;
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String mensagem = "";
+  for (int i = 0; i < length; i++) {
+    mensagem += (char)payload[i];
+  }
+
+  Serial.print("TOPICO: ");
+  Serial.println(topic);
+
+  Serial.print("Mensagem: ");
+  Serial.println(mensagem);
+
+  if (String(topic) == TOPICO_LED_S2) {
+    if (mensagem == "Acender") {
+      digitalWrite(LED_PIN, HIGH);
+    } else if (mensagem == "Apagar") {
+      digitalWrite(LED_PIN, LOW);
+    }
+  }
+}
+
+void conectarMQTT() {
+  Serial.print("Conectando ao Broker MQTT...");
+
+  String clientID = "S2_" + String(random(0xffff), HEX);
+
+  while (!mqtt.connected()) {
+    if (mqtt.connect(clientID.c_str(), BROKER_USER, BROKER_PASS)) {
+      Serial.println("\nConectado ao Broker!");
+      mqtt.subscribe(TOPICO_LED_S2);
+
+    } else {
+      Serial.print(".");
+      delay(500);
+    }
+  }
+}
