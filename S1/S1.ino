@@ -1,76 +1,163 @@
 #include <WiFi.h>          // Biblioteca para conectar o ESP32 ao Wi-Fi
 #include <PubSubClient.h>  // Biblioteca para comunicação MQTT
+#include <WiFiClientSecure.h>
+#include "env.h"
+#include <DHT.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
 
 // Cria um objeto que representa a conexão Wi-Fi
-WiFiClient wifi_client;
+WiFiClientSecure wifi_client;
 
 // Cria um objeto MQTT usando a conexão Wi-Fi
 PubSubClient mqtt(wifi_client);
 
-// Nome e senha da rede Wi-Fi que o ESP32 vai se conectar
-const String SSID = "FIESC_IOT_EDU";
-const String PASS = "8120gv08";
+/*
+------------------------------
+          VARIÁVEIS
+------------------------------
+*/
 
-// Endereço e porta do broker MQTT público
-const String brokerURL = "test.mosquitto.org";
-const int brokerPort = 1883;
-const String topic = "gatinhos";
+// LED
+int r = 14;
+int g = 26;
+int b = 25;
+int led = 19;
 
-// Usuário e senha do broker (aqui estão vazios porque esse broker é público)
-const String brokerUser = "";
-const String brokerPass = "";
+// DHT (umidade)
+DHT dhtSensor(DHTPIN, DHTTYPE);
+
+// LDR (iluminação)
+int ldr = 34;
+
+// ECHO (presença)
+int echo = 23;
+int trig = 22;
+
+// -----------------------------------------------------------------
+
+String mensagem = "";
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  for (int i = 0; i < length; i++) {
+    msg += (char)payload[i];
+  }
+
+  msg.trim();
+  Serial.print("Mensagem do BROKER: ");
+  Serial.println(msg);
+
+  if (msg == "Acender") {
+    digitalWrite(led, HIGH);
+  }
+  if (msg == "Desligar") {
+    digitalWrite(led, LOW);
+  }
+}
 
 void setup() {
   Serial.begin(115200);  // Inicia a comunicação serial (para ver mensagens no monitor serial)
+  pinMode(r, OUTPUT);
+  pinMode(g, OUTPUT);
+  pinMode(b, OUTPUT);
+  pinMode(led, OUTPUT);
 
-  WiFi.begin(SSID, PASS);  // Tenta conectar o ESP32 ao Wi-Fi com o SSID e senha informados
+  pinMode(ldr, INPUT);
+
+  pinMode(trig, OUTPUT);
+  pinMode(echo, INPUT);
+
+  dhtSensor.begin();
+
+  wifi_client.setInsecure();
   Serial.println("Conectando no WiFi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  // Espera até que a conexão Wi-Fi seja estabelecida
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");  // Mostra pontos enquanto tenta conectar
-    delay(200);
+    delay(500);
+    Serial.print(".");
   }
-  Serial.println("\nConectado com sucesso ao WiFi!");
+  Serial.println(" conectado!");
 
-  // Configura o servidor MQTT (endereço e porta)
-  mqtt.setServer(brokerURL.c_str(), brokerPort);
-
-  // Cria um ID único para o cliente MQTT (evita conflito com outros dispositivos)
-  String clientID = "S2";
-  clientID += String(random(0xffff), HEX);
-
-  Serial.println("Conectando ao Broker MQTT...");
-
-  // Tenta conectar ao broker MQTT
-  while (mqtt.connect(clientID.c_str()) == 0) {
-    Serial.print(".");  // Mostra pontos enquanto tenta conectar
-    delay(2000);
-  }
-  mqtt.subscribe(topic.c_str());
+  mqtt.setServer(BROKER_URL, BROKER_PORT);
   mqtt.setCallback(callback);
-  Serial.println("\nConectado ao broker MQTT!");
+
+  mqttConnect();
+
+  Serial.println("Setup finalizado");
 }
 
 void loop() {
-  // Aqui vai o código que será executado continuamente
-  // (por exemplo, publicar ou receber mensagens MQTT)
-  String mensagem = "";
-  if (Serial.available() > 0) {
-    mensagem = Serial.readStringUntil('\n');
-    mensagem = "sara: " + mensagem;
-    mqtt.publish("bob", mensagem.c_str());
-    mqtt.publish("macaco", mensagem.c_str());
-    mqtt.publish("felpz", mensagem.c_str());
+   if (!mqtt.connected()) {
+    mqttConnect();
   }
   mqtt.loop();
+
+  // ---------------------------
+  // LDR: leitura e automação
+  // ---------------------------
+  int ldrValue = analogRead(ldr);
+  mqtt.publish(TOPIC_ILUM, String(ldrValue).c_str());
+
+  // Limite de luz (ajusta se necessário)
+  int limite = 2000; // quanto menor = mais escuro
+
+  if (ldrValue < limite) {
+    // Escuro
+    digitalWrite(led, HIGH);
+  } else {
+    // Claro
+    digitalWrite(led, LOW);
+  }
+
+  // ---------------------------
+  // DHT11
+  // ---------------------------
+  float umid = dhtSensor.readHumidity();
+  float temp = dhtSensor.readTemperature();
+
+  if (!isnan(umid))
+    mqtt.publish(TOPIC_UMID, String(umid).c_str());
+
+  if (!isnan(temp))
+    mqtt.publish(TOPIC_TEMP, String(temp).c_str());
+
+  // ---------------------------
+  // Ultrassônico
+  // ---------------------------
+  digitalWrite(trig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+
+  long duracao = pulseIn(echo, HIGH);
+  long distancia = duracao * 0.034 / 2;
+
+  mqtt.publish(TOPIC_PRESENCA, String(distancia).c_str());
+
+  delay(500);
 }
 
-void callback(char* topic, byte* payload, unsigned long length) {
-  String MensagemRecebida = "";
-  for (int i = 0; i < length; i++) {
-    //Pega cada letra de payload e junta na mensagem
-    MensagemRecebida += (char)payload[i];
+
+void mqttConnect() {
+  Serial.print("Conectando ao broker MQTT... ");
+
+  String clientId = "ESP32_";
+  clientId += WiFi.macAddress();
+  clientId.replace(":", "");
+
+  while (!mqtt.connected()) {
+    if (mqtt.connect(clientId.c_str(), BROKER_USD_ID, BROKER_PASS_USR_PASS)) {
+      Serial.println("conectado!");
+      // nenhum subscribe aqui
+    } else {
+      Serial.print("falhou, rc=");
+      Serial.println(mqtt.state());
+      Serial.println(" tentando novamente em 2s...");
+      delay(2000);
+    }
   }
-  Serial.println(MensagemRecebida);
 }
