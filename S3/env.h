@@ -11,9 +11,10 @@
 #define BROKER_PASS_USR_PASS "PlaquinhaS3"
 
 // A partir daqui depende da placa
-#define TOPIC_PRESENCA "sensor/presenca"
-#define TOPIC_ILUM "sensor/iluminacao"
-#define TOPIC_TEMP "sensor/temperatura"
-#define TOPIC_UMID "sensor/umidade"
+#define TOPIC_LED            "s3/led"
+#define TOPIC_SERVO_1        "s3/servo1"
+#define TOPIC_SERVO_2        "s3/servo2"
+#define TOPIC_ULTRASSONICO   "s3/sensor/ultrassom"
+
 
 #endif
