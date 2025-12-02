@@ -35,10 +35,6 @@ int ldr = 34;
 int echo = 23;
 int trig = 22;
 
-// -----------------------------------------------------------------
-
-String mensagem = "";
-
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg;
   for (int i = 0; i < length; i++) {
